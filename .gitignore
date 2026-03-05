@@ -1,0 +1,9 @@
+# --- Rust Specific ---
+/target/
+
+# --- IDEs & Editors ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
