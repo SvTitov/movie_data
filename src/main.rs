@@ -7,7 +7,7 @@ use crate::{
         cache_repo::CacheRepo,
         persistent_repo::{PersistentRepo, RealPersistentRepo},
     },
-    jobs::OmdbPeriodicFetcher,
+    jobs::omdb_periodic_fetcher::OmdbPeriodicFetcher,
 };
 use anyhow::Result;
 use axum::Router;
