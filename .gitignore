@@ -8,7 +8,8 @@
 *.swo
 
 # --- Sensetive data ---
-dev.env
-prod.env
-test.env
+*.env
+
+# --- Keep example of config ---
+!example.env
 
