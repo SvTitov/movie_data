@@ -7,3 +7,8 @@
 *.swp
 *.swo
 
+# --- Sensetive data ---
+dev.env
+prod.env
+test.env
+
