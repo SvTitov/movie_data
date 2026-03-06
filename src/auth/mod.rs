@@ -1,31 +1,30 @@
 use std::sync::Arc;
 
-use crate::AppState;
 use crate::net::{CreateUserDto, LoginDto, LoginResponse};
+use crate::AppState;
 use axum::http::StatusCode;
-use axum::{Json, Router, extract::State, routing::post};
+use axum::{extract::State, routing::post, Json, Router};
 use tokio::sync::Mutex;
 
 mod auth_middleware;
 
-pub fn create_auth_router() -> Router<Arc<Mutex<AppState>>> {
+pub fn create_auth_router() -> Router<AppState> {
     Router::new()
         .route("/login", post(login))
         .route("/create_user", post(create_user))
 }
 
 async fn login(
-    State(app): State<Arc<Mutex<AppState>>>,
+    State(app): State<AppState>,
     Json(payload): Json<LoginDto>,
 ) -> Result<Json<LoginResponse>, StatusCode> {
     if payload.login.is_empty() || payload.password.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let mut guard = app.lock().await;
+    let storage = app.get_storage();
 
-    let valid_user = guard
-        .get_storage()
+    let valid_user = storage
         .user_valid(&payload.login, &payload.password)
         .await
         .map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -34,8 +33,10 @@ async fn login(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let token = guard
-        .get_cache_mut()
+    let token = app
+        .get_cache()
+        .lock()
+        .await
         .create_session(&payload.login)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -43,10 +44,8 @@ async fn login(
     Ok(Json(LoginResponse::new(token)))
 }
 
-async fn create_user(State(app): State<Arc<Mutex<AppState>>>, Json(payload): Json<CreateUserDto>) {
+async fn create_user(State(app): State<AppState>, Json(payload): Json<CreateUserDto>) {
     match app
-        .lock()
-        .await
         .get_storage()
         .create_user(&payload.login, &payload.password, chrono::Utc::now())
         .await
@@ -59,7 +58,7 @@ async fn create_user(State(app): State<Arc<Mutex<AppState>>>, Json(payload): Jso
 mod test {
     use std::{sync::Arc, time::Duration};
 
-    use axum::{Json, Router, extract::State, routing::post};
+    use axum::{extract::State, routing::post, Json, Router};
     use axum_test::TestServer;
     use chrono::Utc;
     use sqlx::PgPool;

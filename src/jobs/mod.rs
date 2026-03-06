@@ -1,20 +1,22 @@
-use std::{os::macos::raw::stat, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
 
-use crate::AppState;
+use crate::connectors::omdb::OmdbConnector;
 
-pub async fn create_periodic_movie_fetch_job(state: Arc<Mutex<AppState>>) -> Result<JobScheduler> {
+pub async fn create_periodic_movie_fetch_job(
+    connector: Arc<OmdbConnector>,
+) -> Result<JobScheduler> {
     let job = JobScheduler::new().await?;
 
-    let connector = state.lock().await.omdb_connector.clone();
-
-    job.add(Job::new_async("0/5 * * * * *", move |uuid, j| {
+    job.add(Job::new_async("0/5 * * * * *", move |_uuid, _j| {
         let connector = connector.clone();
+
         Box::pin(async move {
-            let guard = connector.get_info("").await;
+            let _info = connector.get_info("").await;
+
+            if let Ok(_info) = _info {}
 
             println!("Next will be in 5 second")
         })

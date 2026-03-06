@@ -11,7 +11,7 @@ use crate::{
 use anyhow::Result;
 use axum::Router;
 use sqlx::postgres::PgPoolOptions;
-use std::{env, sync::Arc};
+use std::{env, os::linux::raw::stat, sync::Arc};
 use tokio::sync::Mutex;
 
 mod auth;
@@ -26,7 +26,7 @@ mod utils;
 pub struct AppState {
     storage: Arc<dyn PersistentRepo>,
     omdb_connector: Arc<OmdbConnector>,
-    cache: CacheRepo,
+    cache: Arc<Mutex<CacheRepo>>,
 }
 
 impl AppState {
@@ -37,7 +37,7 @@ impl AppState {
     ) -> Self {
         AppState {
             storage: Arc::from(storage),
-            cache,
+            cache: Arc::new(Mutex::new(cache)),
             omdb_connector: Arc::new(omdb_connector),
         }
     }
@@ -46,12 +46,12 @@ impl AppState {
         self.storage.as_ref()
     }
 
-    pub fn get_cache(&self) -> &CacheRepo {
-        &self.cache
+    pub fn get_cache(&self) -> Arc<Mutex<CacheRepo>> {
+        self.cache.clone()
     }
 
-    pub fn get_cache_mut(&mut self) -> &mut CacheRepo {
-        &mut self.cache
+    pub fn get_omdb_connector(&self) -> Arc<OmdbConnector> {
+        self.omdb_connector.clone()
     }
 }
 
@@ -70,15 +70,13 @@ async fn main() -> Result<()> {
         env::var("OMDB_API_KEY")?,
     );
 
-    let storage = configure_db(&config).await?;
-
-    let omdb = configure_omdb_connector(&config)?;
-
-    let state = Arc::new(Mutex::new(AppState::new(
-        storage,
+    let state = AppState::new(
+        configure_db(&config).await?,
         confugire_cache(&config).await?,
-        omdb,
-    )));
+        configure_omdb_connector(&config)?,
+    );
+
+    let omdb = state.get_omdb_connector();
 
     let address = config.get_address();
 
@@ -88,7 +86,7 @@ async fn main() -> Result<()> {
 
     let listener = tokio::net::TcpListener::bind(address).await?;
 
-    let job = create_periodic_movie_fetch_job().await?;
+    let job = create_periodic_movie_fetch_job(omdb).await?;
     job.start().await?;
 
     axum::serve(listener, router).await?;
