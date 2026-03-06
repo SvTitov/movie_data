@@ -1,7 +1,7 @@
 use anyhow::Result;
 use axum::{
     extract::{Request, State},
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     middleware::Next,
     response::Response,
 };
@@ -58,15 +58,17 @@ mod test {
     use anyhow::Result;
     use async_trait::async_trait;
 
-    use axum::{middleware, routing::get, Router};
+    use axum::{Router, middleware, routing::get};
     use axum_test::TestServer;
     use chrono::{DateTime, Utc};
     use redis::TypedCommands;
 
     use crate::{
-        auth::auth_middleware::auth_middleware,
-        dal::{cache_repo::CacheRepo, persistent_repo::PersistentRepo, UserEntity},
         AppState,
+        auth::auth_middleware::auth_middleware,
+        configure_omdb_connector,
+        connectors::omdb::OmdbConnector,
+        dal::{UserEntity, cache_repo::CacheRepo, persistent_repo::PersistentRepo},
     };
 
     struct MockDataBase;
@@ -101,7 +103,7 @@ mod test {
 
         let cache = CacheRepo::new(c_m);
 
-        let mock_state = AppState::new(Box::new(MockDataBase), cache);
+        let mock_state = AppState::new(Box::new(MockDataBase), cache, OmdbConnector::new(""));
 
         let router = Router::new()
             .route("/info", get(|| async { "Ok" }))

@@ -1,1 +1,1 @@
-mod omdb;
+pub mod omdb;

@@ -1,6 +1,7 @@
 use crate::{
     auth::create_auth_router,
     configuration::Configuration,
+    connectors::omdb::OmdbConnector,
     dal::{
         cache_repo::CacheRepo,
         persistent_repo::{PersistentRepo, RealPersistentRepo},
@@ -11,6 +12,7 @@ use anyhow::Result;
 use axum::Router;
 use sqlx::postgres::PgPoolOptions;
 use std::{env, sync::Arc};
+use tokio::sync::Mutex;
 
 mod auth;
 mod configuration;
@@ -23,14 +25,20 @@ mod utils;
 #[derive(Clone)]
 pub struct AppState {
     storage: Arc<dyn PersistentRepo>,
+    omdb_connector: Arc<OmdbConnector>,
     cache: CacheRepo,
 }
 
 impl AppState {
-    pub fn new(storage: Box<dyn PersistentRepo>, cache: CacheRepo) -> Self {
+    pub fn new(
+        storage: Box<dyn PersistentRepo>,
+        cache: CacheRepo,
+        omdb_connector: OmdbConnector,
+    ) -> Self {
         AppState {
             storage: Arc::from(storage),
             cache,
+            omdb_connector: Arc::new(omdb_connector),
         }
     }
 
@@ -59,11 +67,18 @@ async fn main() -> Result<()> {
         env::var("PORT")?,
         env::var("DATABASE_URL")?,
         env::var("REDIS_URL")?,
+        env::var("OMDB_API_KEY")?,
     );
 
     let storage = configure_db(&config).await?;
 
-    let state = AppState::new(storage, confugire_cache(&config).await?);
+    let omdb = configure_omdb_connector(&config)?;
+
+    let state = Arc::new(Mutex::new(AppState::new(
+        storage,
+        confugire_cache(&config).await?,
+        omdb,
+    )));
 
     let address = config.get_address();
 
@@ -95,4 +110,8 @@ async fn confugire_cache(conf: &Configuration) -> Result<CacheRepo> {
     let conn = client.get_connection_manager().await?;
 
     Ok(CacheRepo::new(conn))
+}
+
+fn configure_omdb_connector(conf: &Configuration) -> Result<OmdbConnector> {
+    Ok(OmdbConnector::new(conf.get_omdb_api_key()))
 }
