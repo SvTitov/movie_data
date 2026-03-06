@@ -1,4 +1,5 @@
 use crate::{
+    app_state::AppState,
     auth::create_auth_router,
     configuration::Configuration,
     connectors::omdb::OmdbConnector,
@@ -6,14 +7,14 @@ use crate::{
         cache_repo::CacheRepo,
         persistent_repo::{PersistentRepo, RealPersistentRepo},
     },
-    jobs::create_periodic_movie_fetch_job,
+    jobs::OmdbPeriodicFetcher,
 };
 use anyhow::Result;
 use axum::Router;
 use sqlx::postgres::PgPoolOptions;
-use std::{env, os::linux::raw::stat, sync::Arc};
-use tokio::sync::Mutex;
+use std::env;
 
+mod app_state;
 mod auth;
 mod configuration;
 mod connectors;
@@ -21,39 +22,6 @@ mod dal;
 mod jobs;
 mod net;
 mod utils;
-
-#[derive(Clone)]
-pub struct AppState {
-    storage: Arc<dyn PersistentRepo>,
-    omdb_connector: Arc<OmdbConnector>,
-    cache: Arc<Mutex<CacheRepo>>,
-}
-
-impl AppState {
-    pub fn new(
-        storage: Box<dyn PersistentRepo>,
-        cache: CacheRepo,
-        omdb_connector: OmdbConnector,
-    ) -> Self {
-        AppState {
-            storage: Arc::from(storage),
-            cache: Arc::new(Mutex::new(cache)),
-            omdb_connector: Arc::new(omdb_connector),
-        }
-    }
-
-    pub fn get_storage(&self) -> &dyn PersistentRepo {
-        self.storage.as_ref()
-    }
-
-    pub fn get_cache(&self) -> Arc<Mutex<CacheRepo>> {
-        self.cache.clone()
-    }
-
-    pub fn get_omdb_connector(&self) -> Arc<OmdbConnector> {
-        self.omdb_connector.clone()
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -77,6 +45,7 @@ async fn main() -> Result<()> {
     );
 
     let omdb = state.get_omdb_connector();
+    let storage = state.get_storage();
 
     let address = config.get_address();
 
@@ -86,7 +55,8 @@ async fn main() -> Result<()> {
 
     let listener = tokio::net::TcpListener::bind(address).await?;
 
-    let job = create_periodic_movie_fetch_job(omdb).await?;
+    let opf = OmdbPeriodicFetcher::new(storage);
+    let job = opf.start_fetch(omdb).await?;
     job.start().await?;
 
     axum::serve(listener, router).await?;

@@ -1,27 +1,63 @@
-use std::sync::Arc;
+use std::{cell::RefCell, str, sync::Arc};
 
 use anyhow::Result;
 use tokio_cron_scheduler::{Job, JobScheduler};
 
-use crate::connectors::omdb::OmdbConnector;
+use crate::{connectors::omdb::OmdbConnector, dal::persistent_repo::PersistentRepo};
 
-pub async fn create_periodic_movie_fetch_job(
-    connector: Arc<OmdbConnector>,
-) -> Result<JobScheduler> {
-    let job = JobScheduler::new().await?;
+#[derive(Default)]
+enum State {
+    #[default]
+    NotStarted,
+    Running,
+    Stopped,
+}
 
-    job.add(Job::new_async("0/5 * * * * *", move |_uuid, _j| {
-        let connector = connector.clone();
+pub struct OmdbPeriodicFetcher {
+    state: RefCell<State>,
+    storage: Arc<dyn PersistentRepo>,
+}
 
-        Box::pin(async move {
-            let _info = connector.get_info("").await;
+impl OmdbPeriodicFetcher {
+    pub fn new(storage: Arc<dyn PersistentRepo>) -> Self {
+        Self {
+            storage,
+            state: RefCell::new(Default::default()),
+        }
+    }
 
-            if let Ok(_info) = _info {}
+    pub async fn start_fetch(&self, connector: Arc<OmdbConnector>) -> Result<JobScheduler> {
+        self.change_state(State::Running);
 
-            println!("Next will be in 5 second")
-        })
-    })?)
-    .await?;
+        let job = JobScheduler::new().await?;
 
-    Ok(job)
+        job.add(Job::new_async("0/5 * * * * *", move |_uuid, _j| {
+            let connector = connector.clone();
+
+            Box::pin(async move {
+                println!("Before request terminator");
+
+                let info = connector.get_info("terminator").await;
+
+                if info.is_err() {
+                    println!("This is an error")
+                }
+
+                match info {
+                    Ok(_info) => println!("{:?}", _info),
+                    Err(err) => println!("{}", err),
+                }
+
+                println!("Next will be in 5 second")
+            })
+        })?)
+        .await?;
+
+        Ok(job)
+    }
+
+    fn change_state(&self, state: State) {
+        let mut s = self.state.borrow_mut();
+        *s = state;
+    }
 }
